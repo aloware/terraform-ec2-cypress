@@ -59,10 +59,20 @@ resource "aws_instance" "ubuntu_server" {
   }
 }
 
+// Allocate Elastic IP (needed if subnet doesn't auto-assign public IPs)
+resource "aws_eip" "instance_eip" {
+  instance = aws_instance.ubuntu_server.id
+  domain   = "vpc"
+
+  tags = {
+    Name = "${var.instance_name}-eip"
+  }
+}
+
 // Output the instance's public IP for use in pipeline
 output "public_ip" {
   description = "Public IP of the EC2 instance"
-  value       = aws_instance.ubuntu_server.public_ip
+  value       = aws_eip.instance_eip.public_ip
 }
 
 output "instance_id" {
