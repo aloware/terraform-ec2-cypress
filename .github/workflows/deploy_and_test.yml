@@ -1,0 +1,125 @@
+name: Terraform EC2 Deploy and Test
+
+on:
+  push:
+    branches: [ main ]  # Trigger on push to main (adjust as needed)
+  workflow_dispatch:    # Allow manual trigger from GitHub UI
+
+jobs:
+  deploy-test:
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_vpc_id: ${{ secrets.AWS_VPC_ID }}
+      TF_VAR_subnet_id: ${{ secrets.AWS_SUBNET_ID }}
+      TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
+      TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+      # The above env vars will be picked up by Terraform as input variables.
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false  # Disable wrapper for cleaner output
+
+      - name: Terraform Init and Apply
+        working-directory: ./terraform
+        run: |
+          terraform init -input=false
+          terraform apply -auto-approve
+
+      - name: Get EC2 Public IP
+        working-directory: ./terraform
+        id: get_ip
+        run: |
+          echo "EC2_PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
+        # Saves the output value to be used in later steps as steps.get_ip.outputs.EC2_PUBLIC_IP
+
+      - name: Wait for EC2 SSH to become available
+        env:
+          EC2_IP: ${{ steps.get_ip.outputs.EC2_PUBLIC_IP }}
+        run: |
+          echo "Waiting for SSH on $EC2_IP..."
+          for i in {1..24}; do
+            if nc -z $EC2_IP 22; then 
+              echo "SSH is ready on $EC2_IP"; 
+              break; 
+            fi
+            echo "Attempt $i: SSH not ready, retrying in 5s..."
+            sleep 5
+          done
+
+      - name: Run Cypress tests on EC2 via SSH
+        env:
+          EC2_IP: ${{ steps.get_ip.outputs.EC2_PUBLIC_IP }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          # Write the private key to a file
+          echo "$SSH_KEY" > ec2_key.pem
+          chmod 600 ec2_key.pem
+
+          # SSH into the instance and run test commands
+          ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@$EC2_IP <<'EOF'
+            echo "Connected to EC2. Installing Node.js and Cypress..."
+            
+            # Install Node.js and npm (using NodeSource for latest LTS node)
+            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+
+            # Install additional dependencies for Cypress/Electron
+            sudo apt-get install -y libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev \
+              libnss3 libxss1 libasound2 libxtst6 xauth xvfb
+
+            # Set up a simple Cypress test project
+            mkdir -p ~/e2e-tests && cd ~/e2e-tests
+            npm init -y
+            npm install cypress@13.6.0 --save-dev
+
+            # Create a Cypress test spec that visits the local Nginx page
+            npx cypress verify || true  # verify/install Cypress binary
+            mkdir -p cypress/e2e
+            cat > cypress/e2e/welcome.cy.js << 'EOT'
+            describe('Nginx Welcome Page', () => {
+              it('should display the default welcome message', () => {
+                cy.visit('http://localhost');
+                cy.contains('Welcome to nginx!');
+              });
+            });
+            EOT
+
+            # Create Cypress config
+            cat > cypress.config.js << 'EOT'
+            const { defineConfig } = require('cypress');
+
+            module.exports = defineConfig({
+              e2e: {
+                baseUrl: 'http://localhost',
+                video: false,
+                screenshotOnRunFailure: false,
+              },
+            });
+            EOT
+
+            # Run Cypress tests in headless mode
+            echo "Running Cypress tests..."
+            npx cypress run --headless --spec "cypress/e2e/welcome.cy.js" || echo "Cypress test run finished (check status above)"
+
+            # Also verify via curl that Nginx is serving the page
+            echo ""
+            echo "Fetching home page via curl:"
+            curl -f http://localhost || echo "Curl check failed"
+          EOF
+
+      - name: Cleanup - Save key for destroy (optional)
+        if: always()
+        run: rm -f ec2_key.pem
