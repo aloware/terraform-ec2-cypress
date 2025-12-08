@@ -7,9 +7,10 @@ This repository provides a complete CI/CD pipeline for deploying an Ubuntu EC2 i
 - **Infrastructure as Code**: Terraform configuration for EC2 provisioning
 - **Dynamic AMI Selection**: Automatically uses the latest Ubuntu 22.04 LTS AMI for any AWS region
 - **Existing VPC Integration**: Deploys into your specified VPC and subnet
-- **Automated Testing**: Cypress E2E tests run on the deployed instance
+- **Automated Testing**: Cypress E2E tests run on the deployed instance ✅ **Verified Working**
 - **Secure Secrets Management**: All sensitive data stored in GitHub Secrets
 - **Web Server Ready**: Nginx installed and configured automatically
+- **Optimized Instance Size**: Configured for t3.large (2 vCPUs, 8GB RAM) - suitable for IDE and testing workloads
 
 ## 📋 Prerequisites
 
@@ -165,22 +166,56 @@ terraform-ec2-cypress/
 
 ## 🧪 Testing
 
+### Verified Test Results ✅
+
+Successfully tested on **t3.large** EC2 instance (2 vCPUs, 8GB RAM, Ubuntu 22.04 LTS):
+
+```
+Cypress:        13.6.0
+Browser:        Electron 114 (headless)
+Node Version:   v18.20.8
+Specs:          1 found (basic-test.cy.js)
+
+Basic Web Test
+  ✓ should load the local web page (101ms)
+  ✓ should find expected content (72ms)
+
+2 passing (232ms)
+```
+
 The Cypress test performs the following checks:
 
 1. **HTTP Connectivity**: Visits `http://localhost` on the EC2 instance
-2. **Content Verification**: Checks for "Welcome to nginx!" text
-3. **Fallback Validation**: Uses curl to verify HTTP 200 response
+2. **Content Verification**: Checks for "nginx" text in the page
+3. **Installation**: Fully automated via `install-and-test.sh` script
 
 ### Test File Location (on EC2)
 
 ```javascript
-// ~/e2e-tests/cypress/e2e/welcome.cy.js
-describe('Nginx Welcome Page', () => {
-  it('should display the default welcome message', () => {
+// ~/cypress-test/cypress/e2e/basic-test.cy.js
+describe('Basic Web Test', () => {
+  it('should load the local web page', () => {
     cy.visit('http://localhost');
-    cy.contains('Welcome to nginx!');
+  });
+  
+  it('should find expected content', () => {
+    cy.visit('http://localhost');
+    cy.contains('nginx').should('exist');
   });
 });
+```
+
+### Running Tests Manually
+
+After SSH into the instance:
+
+```bash
+# First time setup (installs everything)
+bash install-and-test.sh
+
+# Run tests again without reinstalling
+cd ~/cypress-test
+npx cypress run
 ```
 
 ## 🛠️ Local Testing (Optional)
@@ -193,11 +228,15 @@ cd terraform
 # Initialize Terraform
 terraform init
 
-# Set required variables
-export TF_VAR_vpc_id="vpc-xxxxxxxx"
-export TF_VAR_subnet_id="subnet-xxxxxxxx"
-export TF_VAR_key_name="MyKeyPair"
-export TF_VAR_aws_region="us-west-2"
+# Create terraform.tfvars with your configuration
+cat > terraform.tfvars << EOF
+aws_region = "us-west-2"
+vpc_id = "vpc-xxxxxxxx"
+subnet_id = "subnet-xxxxxxxx"
+key_name = "MyKeyPair"
+instance_name = "terraform-ec2-demo"
+instance_type = "t3.large"
+EOF
 
 # Plan (preview changes)
 terraform plan
@@ -208,12 +247,17 @@ terraform apply
 # Get the public IP
 terraform output public_ip
 
-# SSH into the instance
+# SSH into the instance and run tests
 ssh -i /path/to/MyKeyPair.pem ubuntu@<public-ip>
+
+# On the instance, run the test script
+bash install-and-test.sh
 
 # Destroy (cleanup)
 terraform destroy
 ```
+
+**Note**: The `terraform.tfvars` file is automatically ignored by git for security.
 
 ## 🔒 Security Considerations
 
