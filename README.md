@@ -10,7 +10,7 @@ This repository provides a complete CI/CD pipeline for deploying an Ubuntu EC2 i
 - **Automated Testing**: Cypress E2E tests run on the deployed instance ✅ **Verified Working**
 - **Secure Secrets Management**: All sensitive data stored in GitHub Secrets
 - **Web Server Ready**: Nginx installed and configured automatically
-- **Optimized Instance Size**: Configured for t3.large (2 vCPUs, 8GB RAM) - suitable for IDE and testing workloads
+- **Optimized Instance Size**: Configured for t3.xlarge (4 vCPUs, 16GB RAM) - meets IDE requirements (min 4 cores, 4GB RAM)
 
 ## 📋 Prerequisites
 
@@ -168,7 +168,7 @@ terraform-ec2-cypress/
 
 ### Verified Test Results ✅
 
-Successfully tested on **t3.large** EC2 instance (2 vCPUs, 8GB RAM, Ubuntu 22.04 LTS):
+Successfully tested on **t3.xlarge** EC2 instance (4 vCPUs, 16GB RAM, Ubuntu 22.04 LTS):
 
 ```
 Cypress:        13.6.0
@@ -235,7 +235,7 @@ vpc_id = "vpc-xxxxxxxx"
 subnet_id = "subnet-xxxxxxxx"
 key_name = "MyKeyPair"
 instance_name = "terraform-ec2-demo"
-instance_type = "t3.large"
+instance_type = "t3.xlarge"
 EOF
 
 # Plan (preview changes)

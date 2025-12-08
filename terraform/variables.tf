@@ -29,5 +29,5 @@ variable "instance_name" {
 variable "instance_type" {
   description = "EC2 instance type to use"
   type        = string
-  default     = "t3.large"            # t3.large for IDE: 2 vCPUs, 8GB RAM
+  default     = "t3.xlarge"            # t3.xlarge for IDE: 4 vCPUs, 16GB RAM
 }
