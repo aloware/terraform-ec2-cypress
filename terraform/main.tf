@@ -9,18 +9,50 @@ data "aws_ssm_parameter" "ubuntu_ami" {
   name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id"
 }
 
-// Security Group to allow SSH (22) and HTTP (80)
+// IAM Role for Session Manager access
+resource "aws_iam_role" "ssm_role" {
+  name = "${var.instance_name}-ssm-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = {
+    Name = "${var.instance_name}-ssm-role"
+  }
+}
+
+// Attach AWS managed policy for Session Manager
+resource "aws_iam_role_policy_attachment" "ssm_policy" {
+  role       = aws_iam_role.ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+// Instance profile to attach role to EC2
+resource "aws_iam_instance_profile" "ssm_profile" {
+  name = "${var.instance_name}-ssm-profile"
+  role = aws_iam_role.ssm_role.name
+}
+
+// Attach Session Manager user policy to Developers group
+resource "aws_iam_group_policy_attachment" "developers_ssm" {
+  group      = "Developers"
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMFullAccess"
+}
+
+// Security Group - HTTP only, SSH disabled (use Session Manager for access)
 resource "aws_security_group" "instance_sg" {
   name        = "${var.instance_name}-sg"
   description = "Security group for EC2 allowing SSH and HTTP"
   vpc_id      = var.vpc_id
 
-  ingress {
-    protocol    = "tcp"
-    from_port   = 22
-    to_port     = 22
-    cidr_blocks = ["0.0.0.0/0"]    # SSH open to all (for demo). Restrict in real use!
-  }
   ingress {
     protocol    = "tcp"
     from_port   = 80
@@ -46,6 +78,7 @@ resource "aws_instance" "ubuntu_server" {
   subnet_id              = var.subnet_id            # Launch in this existing subnet
   vpc_security_group_ids = [aws_security_group.instance_sg.id]
   key_name               = var.key_name             # Use existing Key Pair for SSH access
+  iam_instance_profile   = aws_iam_instance_profile.ssm_profile.name
 
   root_block_device {
     volume_size           = 50

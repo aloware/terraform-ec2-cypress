@@ -5,12 +5,13 @@ This repository provides a complete CI/CD pipeline for deploying an Ubuntu EC2 i
 ## 🚀 Features
 
 - **Infrastructure as Code**: Terraform configuration for EC2 provisioning
-- **Dynamic AMI Selection**: Automatically uses the latest Ubuntu 22.04 LTS AMI for any AWS region
+- **Dynamic AMI Selection**: Automatically uses the latest Ubuntu 22.04 LTS ARM64 AMI for any AWS region
 - **Existing VPC Integration**: Deploys into your specified VPC and subnet
 - **Automated Testing**: Cypress E2E tests run on the deployed instance ✅ **Verified Working**
 - **Secure Secrets Management**: All sensitive data stored in GitHub Secrets
 - **Web Server Ready**: Nginx installed and configured automatically
-- **Optimized Instance Size**: Configured for t3.xlarge (4 vCPUs, 16GB RAM) - meets IDE requirements (min 4 cores, 4GB RAM)
+- **Optimized Instance Size**: Configured for m7g.xlarge ARM64 Graviton3 (4 vCPUs, 16GB RAM) - ~$119/month
+- **Secure Access**: AWS Systems Manager Session Manager - SSH disabled for enhanced security ($0 additional cost)
 
 ## 📋 Prerequisites
 
@@ -106,16 +107,16 @@ The GitHub Actions workflow will trigger automatically on push to `main`.
 │  │  │         Subnet (specified)                    │   │  │
 │  │  │                                                │   │  │
 │  │  │  ┌─────────────────────────────────────┐     │   │  │
-│  │  │  │   EC2 Instance (Ubuntu 22.04 LTS)   │     │   │  │
+│  │  │  │  EC2 m7g.xlarge (ARM64 Graviton3)   │     │   │  │
 │  │  │  │   - Nginx Web Server (Port 80)      │     │   │  │
-│  │  │  │   - SSH Access (Port 22)            │     │   │  │
-│  │  │  │   - Node.js + Cypress               │     │   │  │
+│  │  │  │   - Session Manager Access         │     │   │  │
+│  │  │  │   - Docker + Node.js + Cypress      │     │   │  │
 │  │  │  └─────────────────────────────────────┘     │   │  │
 │  │  │                                                │   │  │
 │  │  └──────────────────────────────────────────────┘   │  │
 │  │                                                        │  │
 │  │  Security Group:                                      │  │
-│  │    - Ingress: 22 (SSH), 80 (HTTP)                    │  │
+│  │    - Ingress: 80 (HTTP) only - SSH disabled         │  │
 │  │    - Egress: All                                      │  │
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -207,7 +208,7 @@ describe('Basic Web Test', () => {
 
 ### Running Tests Manually
 
-After SSH into the instance:
+After connecting via Session Manager:
 
 ```bash
 # First time setup (installs everything)
@@ -217,6 +218,38 @@ bash install-and-test.sh
 cd ~/cypress-test
 npx cypress run
 ```
+
+## 🔐 Secure Access with AWS Systems Manager
+
+SSH is **disabled** for enhanced security. Access the instance using AWS Systems Manager Session Manager:
+
+### Method 1: AWS Console (Easiest)
+1. Navigate to [EC2 Instances](https://us-west-2.console.aws.amazon.com/ec2/home?region=us-west-2#Instances:)
+2. Select your instance (`i-089ab2bb0bafcf70f`)
+3. Click **Connect** → **Session Manager** tab → **Connect** button
+
+### Method 2: AWS CLI
+```bash
+# Install Session Manager plugin (one-time setup)
+brew install session-manager-plugin  # macOS
+# For other OS: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+
+# Connect to the instance
+aws ssm start-session --target i-089ab2bb0bafcf70f --region us-west-2
+
+# Verify connection
+whoami  # should show: ssm-user
+```
+
+### Security Benefits
+- ✅ No exposed SSH port (port 22 blocked)
+- ✅ No SSH keys to manage or lose
+- ✅ Audit trail via CloudTrail
+- ✅ IAM-based access control
+- ✅ $0 additional cost
+
+### Required IAM Permissions
+Your IAM user/group needs the `AmazonSSMFullAccess` policy (already attached to `Developers` group).
 
 ## 🛠️ Local Testing (Optional)
 
@@ -235,7 +268,7 @@ vpc_id = "vpc-xxxxxxxx"
 subnet_id = "subnet-xxxxxxxx"
 key_name = "MyKeyPair"
 instance_name = "terraform-ec2-demo"
-instance_type = "t3.xlarge"
+instance_type = "m7g.xlarge"  # ARM64 Graviton3
 EOF
 
 # Plan (preview changes)
@@ -247,8 +280,8 @@ terraform apply
 # Get the public IP
 terraform output public_ip
 
-# SSH into the instance and run tests
-ssh -i /path/to/MyKeyPair.pem ubuntu@<public-ip>
+# Connect via Session Manager (SSH disabled)
+aws ssm start-session --target $(terraform output -raw instance_id) --region us-west-2
 
 # On the instance, run the test script
 bash install-and-test.sh
@@ -259,12 +292,16 @@ terraform destroy
 
 **Note**: The `terraform.tfvars` file is automatically ignored by git for security.
 
-## 🔒 Security Considerations
+## 🔒 Security Features
 
-1. **SSH Access**: The security group opens SSH to `0.0.0.0/0` for demonstration. In production:
-   - Restrict to specific IP ranges: `cidr_blocks = ["YOUR_IP/32"]`
-   - Use AWS Systems Manager Session Manager instead
-   - Implement bastion hosts for VPC access
+1. **SSH Disabled**: Port 22 is blocked at the security group level
+   - Uses AWS Systems Manager Session Manager for secure access
+   - No SSH keys to manage or rotate
+   - All access logged via CloudTrail
+   
+2. **IAM-Based Access Control**: Access managed through IAM policies
+   - `Developers` group has `AmazonSSMFullAccess` policy
+   - No need for SSH key distribution
 
 2. **Secrets Management**: Never commit:
    - AWS credentials
