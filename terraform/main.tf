@@ -4,8 +4,9 @@ provider "aws" {
 }
 
 // Lookup latest Ubuntu 22.04 LTS AMI ID via AWS SSM Parameter Store (region-specific)
+// Using ARM64 for Graviton3 instances (m7g family)
 data "aws_ssm_parameter" "ubuntu_ami" {
-  name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
+  name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/arm64/hvm/ebs-gp2/ami-id"
 }
 
 // Security Group to allow SSH (22) and HTTP (80)
@@ -46,12 +47,46 @@ resource "aws_instance" "ubuntu_server" {
   vpc_security_group_ids = [aws_security_group.instance_sg.id]
   key_name               = var.key_name             # Use existing Key Pair for SSH access
 
+  root_block_device {
+    volume_size           = 50
+    volume_type           = "gp3"
+    iops                  = 3000
+    throughput            = 125
+    delete_on_termination = true
+  }
+
   user_data = <<-EOF
               #!/bin/bash
+              set -e
+              
+              # Update system
               sudo apt-get update -y
+              
+              # Install Nginx
               sudo apt-get install -y nginx
               sudo systemctl enable nginx
               sudo systemctl start nginx
+              
+              # Install Docker
+              sudo apt-get install -y ca-certificates curl
+              sudo install -m 0755 -d /etc/apt/keyrings
+              sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+              sudo chmod a+r /etc/apt/keyrings/docker.asc
+              echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo systemctl enable docker
+              sudo systemctl start docker
+              sudo usermod -aG docker ubuntu
+              
+              # Install Cypress system dependencies
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev \
+                libnss3 libxss1 libasound2 libxtst6 xauth xvfb
+              
+              # Install Node.js 18.x
+              curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+              sudo apt-get install -y nodejs
               EOF
 
   tags = {
