@@ -31,3 +31,15 @@ variable "instance_type" {
   type        = string
   default     = "m7g.xlarge"            # m7g.xlarge ARM64 Graviton3: 4 vCPUs, 16GB RAM
 }
+
+variable "alert_email" {
+  description = "Email address to receive CloudWatch alarm notifications"
+  type        = string
+  default     = "orlando@aloware.com"
+}
+
+variable "cpu_threshold" {
+  description = "CPU utilization percentage threshold for CloudWatch alarm"
+  type        = number
+  default     = 25
+}

@@ -81,7 +81,7 @@ resource "aws_instance" "ubuntu_server" {
   iam_instance_profile   = aws_iam_instance_profile.ssm_profile.name
 
   root_block_device {
-    volume_size           = 50
+    volume_size           = 100
     volume_type           = "gp3"
     iops                  = 3000
     throughput            = 125
@@ -137,6 +137,47 @@ resource "aws_eip" "instance_eip" {
   }
 }
 
+// SNS Topic for CPU alerts
+resource "aws_sns_topic" "ec2_cpu_alerts" {
+  name = "${var.instance_name}-cpu-alerts"
+
+  tags = {
+    Name        = "${var.instance_name}-cpu-alerts"
+    Environment = "production"
+  }
+}
+
+// SNS Email Subscription
+resource "aws_sns_topic_subscription" "ec2_cpu_email" {
+  topic_arn = aws_sns_topic.ec2_cpu_alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+// CloudWatch Alarm for CPU > threshold%
+resource "aws_cloudwatch_metric_alarm" "ec2_high_cpu" {
+  alarm_name          = "${var.instance_name}-high-cpu"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 300 # 5 minutes
+  statistic           = "Average"
+  threshold           = var.cpu_threshold
+  alarm_description   = "Triggers when EC2 CPU exceeds ${var.cpu_threshold}% for 5 minutes"
+  alarm_actions       = [aws_sns_topic.ec2_cpu_alerts.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    InstanceId = aws_instance.ubuntu_server.id
+  }
+
+  tags = {
+    Name     = "${var.instance_name}-high-cpu-alarm"
+    Instance = var.instance_name
+  }
+}
+
 // Output the instance's public IP for use in pipeline
 output "public_ip" {
   description = "Public IP of the EC2 instance"
@@ -146,4 +187,14 @@ output "public_ip" {
 output "instance_id" {
   description = "ID of the EC2 instance"
   value       = aws_instance.ubuntu_server.id
+}
+
+output "sns_topic_arn" {
+  description = "ARN of the SNS topic for CPU alerts"
+  value       = aws_sns_topic.ec2_cpu_alerts.arn
+}
+
+output "cloudwatch_alarm_name" {
+  description = "Name of the CloudWatch CPU alarm"
+  value       = aws_cloudwatch_metric_alarm.ec2_high_cpu.alarm_name
 }
