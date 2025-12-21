@@ -47,7 +47,7 @@ Add the following configuration to your `~/.ssh/config` file:
 ```bash
 # AWS SSM Session Manager - terraform-ec2-demo
 Host terraform-ec2-demo
-    HostName i-089ab2bb0bafcf70f
+    HostName i-0bb73c9206a8dbf62
     User ubuntu
     ProxyCommand sh -c "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p' --region us-west-2"
     StrictHostKeyChecking no
@@ -71,7 +71,7 @@ cat >> ~/.ssh/config << 'EOF'
 
 # AWS SSM Session Manager - terraform-ec2-demo
 Host terraform-ec2-demo
-    HostName i-089ab2bb0bafcf70f
+    HostName i-0bb73c9206a8dbf62
     User ubuntu
     ProxyCommand sh -c "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p' --region us-west-2"
     StrictHostKeyChecking no
@@ -86,7 +86,7 @@ Add the following configuration to `C:\Users\YourUsername\.ssh\config`:
 ```bash
 # AWS SSM Session Manager - terraform-ec2-demo
 Host terraform-ec2-demo
-    HostName i-089ab2bb0bafcf70f
+    HostName i-0bb73c9206a8dbf62
     User ubuntu
     ProxyCommand C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p --region us-west-2"
     StrictHostKeyChecking no
@@ -136,7 +136,7 @@ SSH Public Key:
 [PASTE YOUR PUBLIC KEY FROM STEP 5 HERE]
 
 Email: your-email@aloware.com
-Instance: i-089ab2bb0bafcf70f (terraform-ec2-demo)
+Instance: i-0bb73c9206a8dbf62 (terraform-ec2-demo)
 
 Thanks!
 ```
@@ -216,7 +216,7 @@ You now have full Cursor functionality on the remote instance, including AI feat
 ### Error: "Unable to start session"
 - Check AWS credentials are configured: `aws configure list`
 - Ensure you have SSM permissions (should be in Developers group)
-- Verify instance ID is correct: `i-089ab2bb0bafcf70f`
+- Verify instance ID is correct: `i-0bb73c9206a8dbf62`
 
 ### IDE: "Could not establish connection to terraform-ec2-demo"
 - Test SSH manually first: `ssh terraform-ec2-demo`
@@ -248,7 +248,7 @@ You now have full Cursor functionality on the remote instance, including AI feat
 
 | Property | Value |
 |----------|-------|
-| Instance ID | `i-089ab2bb0bafcf70f` |
+| Instance ID | `i-0bb73c9206a8dbf62` |
 | Instance Type | m7g.xlarge (ARM64 Graviton3) |
 | vCPUs | 4 |
 | RAM | 16 GB |
@@ -286,4 +286,81 @@ Contact Orlando (orlando@aloware.com) for:
 
 ---
 
-**Last Updated:** December 10, 2025
+## Managing Your SSM Sessions
+
+You can manage your own SSM sessions without admin help:
+
+### List Your Active Sessions
+```bash
+aws ssm describe-sessions --state Active --region us-west-2 --filters "key=Owner,value=$(aws sts get-caller-identity --query Arn --output text)"
+```
+
+### Terminate a Specific Session
+```bash
+# Replace SESSION_ID with the actual session ID
+aws ssm terminate-session --session-id SESSION_ID --region us-west-2
+```
+
+### Terminate ALL Your Sessions
+```bash
+for session_id in $(aws ssm describe-sessions --state Active --region us-west-2 --filters "key=Owner,value=$(aws sts get-caller-identity --query Arn --output text)" --query 'Sessions[].SessionId' --output text); do
+  aws ssm terminate-session --session-id "$session_id" --region us-west-2
+done
+```
+
+**Note:** You can only terminate your own sessions. These commands are useful if Cursor/VS Code loses connection and you need to clean up stale sessions.
+
+---
+
+## Instance Hard Reset (Admin Only)
+
+If the instance becomes unresponsive and SSM shows "TargetNotConnected", admins can perform a hard stop/start:
+
+### Check Instance Status
+```bash
+# Check if instance is impaired
+aws ec2 describe-instance-status --instance-ids i-0bb73c9206a8dbf62 --region us-west-2 \
+  --query 'InstanceStatuses[0].[InstanceStatus.Status,SystemStatus.Status]' --output table
+
+# Check SSM connectivity
+aws ssm describe-instance-information --filters "Key=InstanceIds,Values=i-0bb73c9206a8dbf62" \
+  --region us-west-2 --query 'InstanceInformationList[0].[InstanceId,PingStatus,LastPingDateTime]' --output table
+```
+
+### Hard Stop and Start (Fixes Frozen Instances)
+```bash
+# Stop the instance (wait for full stop)
+aws ec2 stop-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+aws ec2 wait instance-stopped --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+
+# Start the instance
+aws ec2 start-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+aws ec2 wait instance-running --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+
+# Wait for SSM agent (30 seconds)
+sleep 30
+aws ssm describe-instance-information --filters "Key=InstanceIds,Values=i-0bb73c9206a8dbf62" \
+  --region us-west-2 --query 'InstanceInformationList[0].PingStatus' --output text
+```
+
+### Quick Reboot (Softer Reset)
+```bash
+# Reboot without full stop/start cycle
+aws ec2 reboot-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+```
+
+**⚠️ Permissions Required:**
+- Developers group: **Read-only access** (cannot stop/start/reboot)
+- Contact Orlando for instance resets or to request elevated permissions
+
+**When to Use:**
+- SSM shows "TargetNotConnected" error
+- Instance status shows "impaired" 
+- Cursor/VS Code connection fails with "i-0bb73c9206a8dbf62 is not connected"
+- Instance unresponsive for >5 minutes
+
+**Downtime:** ~2-3 minutes for full stop/start cycle, ~1 minute for reboot.
+
+---
+
+**Last Updated:** December 12, 2025

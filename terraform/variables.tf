@@ -29,7 +29,7 @@ variable "instance_name" {
 variable "instance_type" {
   description = "EC2 instance type to use"
   type        = string
-  default     = "m7g.xlarge"            # m7g.xlarge ARM64 Graviton3: 4 vCPUs, 16GB RAM
+  default     = "m7g.2xlarge"           # m7g.2xlarge ARM64 Graviton3: 8 vCPUs, 32GB RAM
 }
 
 variable "alert_email" {
@@ -41,5 +41,5 @@ variable "alert_email" {
 variable "cpu_threshold" {
   description = "CPU utilization percentage threshold for CloudWatch alarm"
   type        = number
-  default     = 25
+  default     = 40
 }
