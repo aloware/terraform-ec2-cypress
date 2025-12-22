@@ -259,7 +259,95 @@ terraform destroy
 
 **Note**: The `terraform.tfvars` file is automatically ignored by git for security.
 
-## 🔒 Security Considerations
+## � Cost Breakdown and Optimization
+
+### Current Instance Configuration
+- **Instance Type**: m7g.xlarge (ARM64 Graviton3 - 4 vCPUs, 16 GB RAM)
+- **Storage**: 100 GB gp3 SSD (3000 IOPS, 125 MB/s throughput)
+- **Region**: us-west-2 (Oregon)
+
+### Monthly Cost Estimates
+
+| Component | Running 24/7 | Stopped | Notes |
+|-----------|--------------|---------|-------|
+| **m7g.xlarge compute** | ~$119/mo | $0/mo | $0.1632/hour × 730 hours |
+| **EBS gp3 100 GB** | ~$8/mo | ~$8/mo | Storage always charges |
+| **Elastic IP (if attached)** | $0/mo | $3.60/mo | Only charges when stopped |
+| **Data Transfer OUT** | ~$0-10/mo | $0/mo | First 100 GB/mo free |
+| **TOTAL** | **~$127/mo** | **~$8/mo** | **94% savings when stopped** |
+
+### Cost Optimization Strategies
+
+#### 1. Stop When Not in Use (Recommended)
+Stop the instance during non-working hours to save compute costs while keeping data intact:
+
+| Usage Pattern | Hours/Month | Monthly Cost | Annual Cost | Savings vs 24/7 |
+|---------------|-------------|--------------|-------------|-----------------|
+| **24/7 running** | 730 hrs | ~$127/mo | ~$1,524/year | - |
+| **Business hours (12h/day, M-F)** | 260 hrs | ~$50/mo | ~$600/year | ~$924/year (61%) |
+| **Single shift (8h/day, M-F)** | 173 hrs | ~$36/mo | ~$432/year | ~$1,092/year (72%) |
+| **Dev hours (6h/day, M-F)** | 130 hrs | ~$29/mo | ~$348/year | ~$1,176/year (77%) |
+| **Only storage (stopped)** | 0 hrs | ~$8/mo | ~$96/year | ~$1,428/year (94%) |
+
+**Stop/Start Commands** (Admin only - see [VSCODE_SSM_SETUP.md](docs/VSCODE_SSM_SETUP.md)):
+```bash
+# Stop instance
+aws ec2 stop-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+
+# Start instance
+aws ec2 start-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+```
+
+#### 2. Schedule Instance with Lambda/EventBridge
+Automate start/stop with AWS Lambda for predictable work schedules:
+- **Example**: Auto-start at 9 AM PST, auto-stop at 6 PM PST (weekdays only)
+- **Additional Cost**: ~$0-1/month for Lambda executions
+- **Savings**: ~$75/month compared to 24/7
+
+#### 3. Downsize Instance Type
+Consider smaller instance types if workload permits:
+
+| Instance Type | vCPU | RAM | Cost/Hour | Monthly (730h) | Savings vs m7g.xlarge |
+|---------------|------|-----|-----------|----------------|-----------------------|
+| m7g.xlarge | 4 | 16 GB | $0.1632 | ~$119/mo | - |
+| m7g.large | 2 | 8 GB | $0.0816 | ~$60/mo | ~$59/mo (50%) |
+| m7g.medium | 1 | 4 GB | $0.0408 | ~$30/mo | ~$89/mo (75%) |
+| t4g.xlarge | 4 | 16 GB | $0.1344 | ~$98/mo | ~$21/mo (18%) |
+
+⚠️ **Minimum Requirements for Remote Development**: 4 vCPUs, 4 GB RAM (current: m7g.xlarge exceeds requirements)
+
+#### 4. What Still Charges When Stopped?
+- ✅ **EBS Storage**: ~$8/month (cannot be avoided without data loss)
+- ✅ **Elastic IP** (if attached): $3.60/month when instance is stopped
+- ✅ **Snapshots**: $0.05/GB-month (if you create backups)
+- ❌ **Compute**: $0 when stopped
+- ❌ **Data Transfer**: $0 when stopped
+
+### Best Practices for Cost Management
+1. **Stop instances during nights/weekends**: Save ~$80-100/month
+2. **Set up AWS Budget Alerts**: Get notified at $100, $150 thresholds
+3. **Use AWS Cost Explorer**: Track daily spending patterns
+4. **Tag resources**: `Project=terraform-ec2-cypress`, `Environment=dev`
+5. **Regular audits**: Review resource usage monthly
+6. **Delete unused snapshots**: $0.05/GB-month adds up
+
+### Quick Cost Commands
+```bash
+# Check current month's estimated costs
+aws ce get-cost-and-usage --time-period Start=2025-12-01,End=2025-12-31 \
+  --granularity MONTHLY --metrics "UnblendedCost" --region us-east-1
+
+# List running instances with costs
+aws ec2 describe-instances --region us-west-2 \
+  --filters "Name=instance-state-name,Values=running" \
+  --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name]' --output table
+```
+
+For detailed stop/start procedures and permissions, see [Instance Management Documentation](docs/VSCODE_SSM_SETUP.md#stopping-the-instance-to-save-costs-admin-only).
+
+---
+
+## �🔒 Security Considerations
 
 1. **SSH Access**: The security group opens SSH to `0.0.0.0/0` for demonstration. In production:
    - Restrict to specific IP ranges: `cidr_blocks = ["YOUR_IP/32"]`

@@ -363,4 +363,64 @@ aws ec2 reboot-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
 
 ---
 
+## Stopping the Instance to Save Costs (Admin Only)
+
+When the instance is not actively being used (evenings, weekends, etc.), admins can stop it to reduce costs.
+
+### Stop Instance
+```bash
+# Stop the instance
+aws ec2 stop-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+aws ec2 wait instance-stopped --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+
+# Verify stopped state
+aws ec2 describe-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2 \
+  --query 'Reservations[0].Instances[0].State.Name' --output text
+```
+
+### Start Instance (When Needed)
+```bash
+# Start the instance
+aws ec2 start-instances --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+aws ec2 wait instance-running --instance-ids i-0bb73c9206a8dbf62 --region us-west-2
+
+# Wait for SSM agent to be ready (30-60 seconds)
+sleep 30
+aws ssm describe-instance-information --filters "Key=InstanceIds,Values=i-0bb73c9206a8dbf62" \
+  --region us-west-2 --query 'InstanceInformationList[0].PingStatus' --output text
+```
+
+### Cost Savings When Stopped
+
+| Component | Running Cost | Stopped Cost | Savings |
+|-----------|--------------|--------------|---------|
+| m7g.xlarge compute (per hour) | $0.1632/hr | $0.00/hr | 100% |
+| m7g.xlarge compute (monthly, 730 hrs) | ~$119/mo | $0.00/mo | ~$119/mo |
+| EBS gp3 100 GB (monthly) | ~$8/mo | ~$8/mo | $0/mo |
+| **Total Monthly (24/7 usage)** | **~$127/mo** | **~$8/mo** | **~$119/mo (94%)** |
+
+**What Still Charges When Stopped:**
+- ✅ EBS storage (gp3 100 GB): ~$8/month
+- ✅ Elastic IP (if attached and instance stopped): $3.60/month
+- ❌ Compute (instance type): $0/month when stopped
+- ❌ Data transfer: $0/month when stopped
+
+**Cost Optimization Scenarios:**
+
+| Usage Pattern | Monthly Cost | Annual Cost |
+|---------------|--------------|-------------|
+| 24/7 running | ~$127/mo | ~$1,524/year |
+| 12 hrs/day (business hours only) | ~$68/mo | ~$816/year |
+| 8 hrs/day (single shift) | ~$51/mo | ~$612/year |
+| Only storage (stopped) | ~$8/mo | ~$96/year |
+
+**💡 Best Practice:** Stop the instance during non-working hours to save ~$80-100/month. Starting/stopping is free and takes 2-3 minutes.
+
+**⚠️ Permissions Required:**
+- Developers group: **Cannot stop/start instances** (only SSM access)
+- Requires: `ec2:StopInstances`, `ec2:StartInstances` permissions
+- Contact Orlando to stop/start the instance or request elevated permissions
+
+---
+
 **Last Updated:** December 12, 2025
